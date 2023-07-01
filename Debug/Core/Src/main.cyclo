@@ -1,0 +1,17 @@
+main.c:31:6:osKernelInitialize	1
+main.c:48:5:osCreateThread	3
+main.c:89:6:osKernelStart	1
+main.c:93:6:osSched	1
+main.c:107:6:osYield	1
+main.c:111:5:__io_putchar	1
+main.c:117:5:main	1
+main.c:130:6:SystemClock_Config	3
+main.c:165:13:MX_USART2_UART_Init	2
+main.c:183:13:MX_GPIO_Init	1
+main.c:205:6:Error_Handler	1
+main.c:213:6:jumpAssembly	1
+main.c:218:6:print_I	1
+main.c:223:6:print_next	1
+main.c:228:6:thread1	1
+main.c:235:6:thread2	1
+main.c:241:6:SVC_Handler_Main	7

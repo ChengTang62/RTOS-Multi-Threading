@@ -1,0 +1,176 @@
+\documentclass{article}
+\usepackage{listings}
+
+\title{RTOS Multi-threading Guide}
+\author{Cheng Tang}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+This report serves as a guideline for building RTOS system that supports multi-threading composed of sections introducing macros and constants, global variables, function descriptions, data structure, as well as usage instruction. In the function description section, the implementation, purpose, and usage of the function for initializing the kernel, creating threads, scheduling, yielding will be discussed. 
+
+\section{Macros and Constants}
+
+\subsection{\texttt{MAX\_THREADS}}
+Represents the maximum number of threads supported by the OS. This number can be calculated using the total size of the stack, the $_Min_Stack_Size$ and the size of the stack allocated to each thread.
+
+\subsection{\texttt{SHPR2}}
+Memory-mapped address representing the priority for the Supervisor Call (SVC) interrupt.
+
+\subsection{\texttt{SHPR3}}
+Memory-mapped address representing the priority for the PendSV interrupt.
+
+\subsection{\texttt{\_ICSR}}
+Memory-mapped address representing the Interrupt Control and State Register.
+
+\subsection{Example usage}
+The following lines of code can be used:
+\begin{lstlisting}[language=C]
+#define MAX_THREADS 10
+#define SHPR2 *(uint32_t*)0xE000ED1C
+#define SHPR3 *(uint32_t*)0xE000ED20
+#define _ICSR *(uint32_t*)0xE000ED04
+\end{lstlisting}
+
+\section{Global Variables and Struct}
+
+The global variable used here are total number of threads ran by the user, index of the current running threads, and an array of threads. 
+
+\begin{lstlisting}[language=C]
+uint32_t numThreadsRunning;
+uint32_t currentThread;
+struct k_thread threadArray[MAX_THREADS];
+}\end{lstlisting}
+
+This struct represents a thread in the OS which contains a stack pointer (\texttt{sp}) pointing to the current location of the stack and a thread function (\texttt{thread\_function}).
+Example usage: 
+\begin{lstlisting}[language=C]
+typedef struct k_thread{
+	uint32_t* sp; 
+	void (*thread_function)(void*); 
+}thread;
+\end{lstlisting}
+
+\section{Function Descriptions}
+
+\subsection{\texttt{osKernelInitialize()}}
+The osKernelInitialize function is used to initialize all the required variables as well as setting the priority of SVC and PendSV. At the initialization stage the total number of threads running is 0; the current index of the thread is set to -1 as there is no available thread to execute; the priority of SVC is set to be higher than PendSV.
+
+\subsection{\texttt{osCreateThread(void (*threadFunction)(void))}}
+The osCreateThread function creates a new thread every time it gets called with void pointer pointing to a thread function as argument. If the maximum number of threads has been reached error will be returned. Otherwise, a new stack is allocated  for the thread, the stack frame is initialized with values to be populated into the registers (the function pointer is stored in the second one which is to be poped into pc register). Then, update the thread's stack pointer to track the new thread. The Process Stack Pointer (PSP) is set to the new thread's stack pointer, and the function returns a success code. 
+
+Note: Remember to increment the currentThread variable as well so when the runFirstThread get called the currentThread match up with the PSP.
+
+The following code serves as an example:
+
+\begin{lstlisting}[language=C]
+
+int osCreateThread(void (*threadFunction)(void)) {
+    if (numThreadsRunning >= MAX_THREADS) {
+        return 1;
+    }
+    if (stackptr == NULL) {
+        return 1;
+    }
+
+    stackptr = (uint32_t*)((uint32_t)stackptr - 0x200);
+
+    *(--stackptr) = 1<<24; //A magic number, this is xPSR
+    *(--stackptr) = (uint32_t)threadFunction; 
+    *(--stackptr) = (uint32_t)'a'; 
+    *(--stackptr) = (uint32_t)'b'; 
+    *(--stackptr) = (uint32_t)'c'; 
+    *(--stackptr) = (uint32_t)'d'; 
+    *(--stackptr) = (uint32_t)'e'; 
+    *(--stackptr) = (uint32_t)'f'; 
+    *(--stackptr) = (uint32_t)'g'; 
+    *(--stackptr) = (uint32_t)'h'; 
+    *(--stackptr) = (uint32_t)'i'; 
+    *(--stackptr) = (uint32_t)'j'; 
+    *(--stackptr) = (uint32_t)'k'; 
+    *(--stackptr) = (uint32_t)'l'; 
+    *(--stackptr) = (uint32_t)'m'; 
+    *(--stackptr) = (uint32_t)'n'; 
+    threadArray[numThreadsRunning].sp = stackptr;
+    numThreadsRunning++;
+    currentThread++;
+	__set_PSP((uint32_t)stackptr);
+
+    return 0;
+}\end{lstlisting}
+
+\subsection{\texttt{osKernelStart()}}
+osKernelStart starts the OS kernel and initiates the scheduling of threads. This can be achieved with a system call that calls runFirstThread which will move the current thread's thread function to PC register and start executing. 
+
+\subsection{\texttt{osSched()}}
+\begin{lstlisting}[language=C]
+void osSched(void) {
+    threadArray[currentThread].sp = (uint32_t*)(__get_PSP() - 8 * 4);
+    currentThread = (currentThread + 1) % numThreadsRunning;
+    __set_PSP((uint32_t)threadArray[currentThread].sp);
+}
+\end{lstlisting}
+The osSched function performs the scheduling operation. It does so by first saving the current thread's stack pointer which moved down 8 register positions and pointing to R0 so that it can be retrieved immediately when it is its turn again, then moves to the next thread in a round-robin fashion, and sets the Process Stack Pointer (PSP) to the stack pointer of the selected (next) thread. 
+
+\subsection{\texttt{osYield()}}
+This function makes a system call that makes the current thread yields. The following code is the system call:
+
+\begin{lstlisting}[language=C]
+    _ICSR |= 1<<28;
+    __asm("isb");\end{lstlisting}
+    
+\section{Usage Instructions}
+To use the OS and run threads, follow the steps outlined below:
+
+Use the following two example threads function:
+
+\subsection{\texttt{thread1()}}
+Thread function 1 prints "Thread 1" to the output and yields the execution.
+\begin{lstlisting}[language=C]
+void thread1(void){
+	while(1) {
+		printf("Thread 1\r\n");
+		osYield();
+	}
+}
+\end{lstlisting}
+
+\subsection{\texttt{thread2()}}
+Thread function 2 prints "Thread 2" to the output and yields the execution.
+\begin{lstlisting}[language=C]
+void thread2(void){
+	while(1) {
+		printf("Thread 2\r\n");
+		osYield();
+	}
+}\end{lstlisting}
+
+\subsection{\texttt{main()}}
+\begin{enumerate}
+  \item Call the \texttt{osKernelInitialize()} function to initialize the OS kernel and set up global variables and data structures.
+  \item Create threads using the \texttt{osCreateThread()} function, specifying the thread function for each thread.
+  \item Call the \texttt{osKernelStart()} function to start the OS kernel and initiate thread scheduling.
+\end{enumerate}
+
+\subsection{How it works}
+
+The osKernelInitialize function is called to initialize the kernel. This function initializes global variables including numThreadsRunning, currentThread and threadArray to keep track of the threads.
+
+Next, threads are created using the osCreateThread function.  It makes sure that the maximum number of threads has not been reached and proceeds to allocate a new stack for the thread, ensuring that each thread has its own stack space. The stack is set up with necessary values including function pointer and xPSR.
+
+Once the threads are created, the kernel is started by calling the osKernelStart function. This function triggers a software interrupt with a specific number. The processor then enters the SVC handler and executes runFirstThread. 
+
+The runFirstThread function sets up and starting the execution of the first thread in the system. It restores the Main Stack Pointer (MSP), initializes the Process Stack Pointer (PSP) with the stack pointer of the first thread, and then branches to start executing the first thread.
+
+The $PendSV_Handler$ function serves as the interrupt handler for the PendSV (Pendable Service) interrupt, which is used for context switching between threads. It saves the context of the currently running thread by storing registers R4-R11 on the thread's stack, calls the osSched function for thread scheduling, restores the context of the next thread, and performs a branch to resume execution of the next thread.
+
+During the execution of threads, the kernel handles context switching and thread scheduling automatically. When a context switch is required, the osSched function is called. This is triggered by thread functions explicitly call to osYield in this case. Calling osYield triggers an SVC with a specific number. The processor enters the SVC handler and executes the corresponding code. In this case, the code sets a flag to request a PendSV interrupt, which triggers the context switch. The osSched function saves the current thread's stack pointer, selects the next thread to run based on a round-robin scheduling algorithm, and updates the stack pointer for the next thread. Finally, the osSched function performs the context switch by updating the PSP and returning to the interrupted code.
+
+\section{Conclusion}
+
+This report explained the components used in a simple RTOS with multi-threading capability and introduced in detail how they work together.
+
+\end{document}
+
